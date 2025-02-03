@@ -7,13 +7,13 @@
   <title>パズルゲーム (スマートフォン対応・Replay付き)</title>
   <style>
     body { margin: 0; padding: 0; position: relative; }
-    /* canvas の内部解像度は固定（ここでは 440×620）ですが、CSS上は横幅いっぱいに表示 */
+    /* 内部解像度は 440x700 ですが、CSS上は横幅いっぱいに表示 */
     canvas {
       border: 1px solid #000;
       display: block;
       margin: 0 auto;
       background: #fff;
-      width: 100%; /* 横幅いっぱいに表示 */
+      width: 100%; /* 横幅いっぱい */
       height: auto;
       touch-action: none; /* タッチ時のスクロール等を無効 */
     }
@@ -31,8 +31,8 @@
   </style>
 </head>
 <body>
-  <!-- 内部解像度を 440x620 に設定 -->
-  <canvas id="gameCanvas" width="440" height="620"></canvas>
+  <!-- 内部解像度を 440x700 に設定 -->
+  <canvas id="gameCanvas" width="440" height="700"></canvas>
   <button id="replayButton">Replay</button>
   <script>
     (function(){
@@ -44,7 +44,7 @@
 
       // 1ブロックのサイズ（ピクセル）
       var blockSize = 40;
-      // 余白（上下左右）を1ブロック分とする
+      // 余白（上下左右）を1ブロック分
       var margin = blockSize; // 40px
       // ボードの描画開始位置（余白分のオフセット）
       var boardOffsetX = margin;
@@ -63,12 +63,14 @@
       var innerWidth = innerCols * blockSize;  // 280px
       var innerHeight = innerRows * blockSize;   // 360px
 
-      // トレイ（下部）の表示位置：ボード下端から【100px】下に変更（余白を2ブロック分大きく）
-      var trayY = boardOffsetY + boardHeight + 100;  // 40 + 440 + 100 = 580
+      // パズル部分とスロット部分の間に1ブロック分の隙間（40px）を確保
+      // トレイ（下部）の表示位置は、ボード下端＋隙間とする
+      var trayY = boardOffsetY + boardHeight + blockSize;  // 40 + 440 + 40 = 520
 
-      // トレイのスロット数は3つ
+      // キャンバスの内部解像度は 440x700 なので、スロット部分の高さは 700 - 520 = 180px
+      // トレイのスロットは3つに設定（ここでは横方向の配置）
       var traySlotPositions = [
-        { x: boardOffsetX + 20, y: trayY },
+        { x: boardOffsetX + 20,  y: trayY },
         { x: boardOffsetX + 140, y: trayY },
         { x: boardOffsetX + 260, y: trayY }
       ];
@@ -151,7 +153,7 @@
             grid[r][c] = pieceId;
             pieceId++;
 
-            // ピースサイズの決定：1ブロックの確率を約0.25%に変更
+            // ピースサイズの決定：1ブロックの確率を約0.25%に設定
             var rand = Math.random();
             var targetSize;
             if(rand < 0.0025){
@@ -322,7 +324,7 @@
             draggingPiece.currentX = draggingPiece.targetX;
             draggingPiece.currentY = draggingPiece.targetY;
             draggingPiece.placed = true;
-            // 振動：対応端末では50ms振動
+            // 振動：対応端末では50ms振動（※iOS Safariでは振動しない可能性があります）
             if(navigator.vibrate) {
               navigator.vibrate(50);
             }
@@ -438,6 +440,7 @@
             drawPiece(piece);
           }
         });
+        // トレイ背景
         ctx.fillStyle = "#ddd";
         ctx.fillRect(0, trayY - 10, canvas.width, canvas.height - trayY + 10);
         for(var i = 0; i < traySlots.length; i++){
