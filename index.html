@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- 横幅・縦幅に合わせたレスポンシブ表示 -->
+  <!-- 横幅・縦幅に合わせたレスポンシブ設定 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>パズルゲーム (タイマー・Item機能付き)</title>
   <style>
@@ -47,10 +47,10 @@
     }
     #continueButton { left: 30%; top: 50%; transform: translate(-50%, -50%); }
     #exitButton { right: 30%; top: 50%; transform: translate(50%, -50%); }
-    /* Itemボタン：画面下部中央（下から100px） */
+    /* Itemボタン：キャンバスの下部（キャンバス高さ880pxのすぐ下）に配置 */
     #itemButton {
       position: absolute;
-      bottom: 100px;
+      top: 890px;  /* キャンバス880pxの下、若干の余白 */
       left: 50%;
       transform: translateX(-50%);
       font-size: 20px;
@@ -70,41 +70,42 @@
   <script>
     (function(){
       // --- レイアウト設定 ---
-      // 新しいキャンバス内部解像度は 720×880
       var canvasWidth = 720, canvasHeight = 880;
       var canvas = document.getElementById("gameCanvas");
       var ctx = canvas.getContext("2d");
       
-      // ボード（完成形）のサイズを拡大：完成形サイズを 360×440 から拡大し、アスペクト比 9:11 を維持
-      // ここでは boardHeight = 600, boardWidth = boardHeight*(9/11) ≒ 491px とします
+      // ボード（完成形）のサイズを余白が1ブロック程度になるよう調整
+      // ここでは、canvas幅720pxの左右余白をそれぞれ blockSize とすると、
+      // boardWidth = canvasWidth - 2*blockSize
+      // なお、完成形はアスペクト比 9:11 とするので、boardHeight = boardWidth * (11/9)
+      // ここでは、blockSizeは後で求めるため、以下のように計算します。
+      // 代入すると boardWidth = 720 - 2*blockSize かつ boardHeight = (720 - 2*blockSize)*(11/9)
+      // 今回は目安として、boardHeight = 600px とし、blockSize = boardHeight/11 ≒ 54.55px、boardWidth = 720 - 2*54.55 ≒ 610px
+      // ※ここでは実際に見た感じで余白を1ブロック弱にするよう調整します。
       var boardHeight = 600;
-      var boardWidth = boardHeight * 9 / 11;  // ≒491
+      var blockSize = boardHeight / 11;  // 約54.55px
+      var boardWidth = canvasWidth - 2 * blockSize; // 約720 - 109.1 = 610.9px
       
-      // blockSize = boardHeight / 11 ≒ 600/11 ≒ 54.55px
-      var blockSize = boardHeight / 11;
-      
-      // レイアウト余白：上部タイマーの下余白 topMargin とボードとトレイの間隔 gap
-      var topMargin = 60;
-      var gapBetweenBoardAndTray = 40;
-      
-      // ボードをキャンバス中央に配置
-      var boardOffsetX = (canvasWidth - boardWidth) / 2;
+      // レイアウト余白
+      var topMargin = 60;  // タイマー下余白
+      var gapBetweenBoardAndTray = 20;  // ボードとトレイの間隔
+      var boardOffsetX = (canvasWidth - boardWidth) / 2;  // 中央に配置
       var boardOffsetY = topMargin;
       
-      // 内側エリア（パズル完成エリア）は、外枠の内側：7×9ブロック
+      // 内側エリア（パズル完成エリア）：7×9ブロック
       var innerCols = 7, innerRows = 9;
       var innerX = boardOffsetX + blockSize;
       var innerY = boardOffsetY + blockSize;
       var innerWidth = blockSize * innerCols;
       var innerHeight = blockSize * innerRows;
       
-      // トレイの位置：ボード下端＋隙間
+      // トレイ位置：ボード下端＋隙間
       var trayY = boardOffsetY + boardHeight + gapBetweenBoardAndTray;
-      // トレイのスロットは横に3つ配置
+      // トレイのスロットは、左右均等に配置（ここでは、左右余白を考慮して3分割）
       var traySlotPositions = [
-        { x: boardOffsetX + 20,  y: trayY },
-        { x: boardOffsetX + 140, y: trayY },
-        { x: boardOffsetX + 260, y: trayY }
+        { x: boardOffsetX + boardWidth / 4, y: trayY },
+        { x: boardOffsetX + boardWidth / 2, y: trayY },
+        { x: boardOffsetX + (3 * boardWidth) / 4, y: trayY }
       ];
       
       // --- ゲーム状態変数 ---
@@ -115,8 +116,8 @@
       var draggingTraySlot = null;
       var dragOffsetX = 0, dragOffsetY = 0;
       
-      // タイマーおよびアイテム関連
-      var timeRemaining = 300; // 300秒＝5分
+      // タイマー・アイテム関連
+      var timeRemaining = 300; // 300秒 = 5分
       var timerInterval = null;
       var gameOverFlag = false;
       var itemCount = 3;
@@ -221,7 +222,6 @@
       }
       
       // --- 画像選択 ---
-      // imageフォルダ内の全JPEGからランダムに選択
       var imageFiles = ["puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg", "puzzle4.jpg"];
       var selectedImageFile = imageFiles[Math.floor(Math.random() * imageFiles.length)];
       var puzzleImage = new Image();
@@ -236,8 +236,7 @@
       };
       
       // --- getSrcScale ---
-      // 画像を仮想完成形サイズ（もともと 360×440 で作られていると仮定）に合わせるためのスケール係数を、
-      // 今回はボードサイズ（boardWidth, boardHeight）に合わせて計算します。
+      // 画像を今回のボードサイズ（boardWidth×boardHeight）に合わせるスケール係数
       function getSrcScale() {
         return {
           x: puzzleImage.width / boardWidth,
@@ -335,47 +334,62 @@
       }
       
       // --- initGame ---
-      function initGame() {
-        createPieces();
-        timeRemaining = 300;
-        updateTimerDisplay();
-        startTimer();
-        gameOverFlag = false;
-        itemCount = 3;
-        updateItemButton();
-        // 重要：各種ボタン（Replay, Continue, Exit）を非表示にリセット
-        replayButton.style.display = "none";
-        continueButton.style.display = "none";
-        exitButton.style.display = "none";
-        // ヒント：内側エリアの中心に近いピース2個を自動配置
-        var centerX = innerX + innerWidth / 2;
-        var centerY = innerY + innerHeight / 2;
-        var sortedPieces = pieces.slice().sort(function(a, b) {
-          var aCenterX = a.targetX + a.width / 2;
-          var aCenterY = a.targetY + a.height / 2;
-          var bCenterX = b.targetX + b.width / 2;
-          var bCenterY = b.targetY + b.height / 2;
-          var aDist = Math.sqrt(Math.pow(aCenterX - centerX, 2) + Math.pow(aCenterY - centerY, 2));
-          var bDist = Math.sqrt(Math.pow(bCenterX - centerX, 2) + Math.pow(bCenterY - centerY, 2));
-          return aDist - bDist;
-        });
-        for (var i = 0; i < 2; i++) {
-          var hintPiece = sortedPieces[i];
-          hintPiece.currentX = hintPiece.targetX;
-          hintPiece.currentY = hintPiece.targetY;
-          hintPiece.placed = true;
-          for (var j = 0; j < remainingPieces.length; j++) {
-            if (remainingPieces[j].id === hintPiece.id) {
-              remainingPieces.splice(j, 1);
-              break;
-            }
-          }
-        }
-        traySlots = [null, null, null];
-        addPieceToTrayAtSlot(0);
-        addPieceToTrayAtSlot(1);
-        addPieceToTrayAtSlot(2);
+function initGame() {
+  createPieces();
+  timeRemaining = 300;
+  updateTimerDisplay();
+  startTimer();
+  gameOverFlag = false;
+  itemCount = 3;
+  updateItemButton();
+  // 状態リセット：各種ボタンを非表示に
+  replayButton.style.display = "none";
+  continueButton.style.display = "none";
+  exitButton.style.display = "none";
+  
+  // ヒント：内側エリアの中心に近いピース2個を自動配置
+  var centerX = innerX + innerWidth / 2;
+  var centerY = innerY + innerHeight / 2;
+  var sortedPieces = pieces.slice().sort(function(a, b) {
+    var aCenterX = a.targetX + a.width / 2;
+    var aCenterY = a.targetY + a.height / 2;
+    var bCenterX = b.targetX + b.width / 2;
+    var bCenterY = b.targetY + b.height / 2;
+    var aDist = Math.sqrt(Math.pow(aCenterX - centerX, 2) + Math.pow(aCenterY - centerY, 2));
+    var bDist = Math.sqrt(Math.pow(bCenterX - centerX, 2) + Math.pow(bCenterY - centerY, 2));
+    return aDist - bDist;
+  });
+  for (var i = 0; i < 2; i++) {
+    var hintPiece = sortedPieces[i];
+    hintPiece.currentX = hintPiece.targetX;
+    hintPiece.currentY = hintPiece.targetY;
+    hintPiece.placed = true;
+    for (var j = 0; j < remainingPieces.length; j++) {
+      if (remainingPieces[j].id === hintPiece.id) {
+        remainingPieces.splice(j, 1);
+        break;
       }
+    }
+  }
+  
+  // 追加のヒント：残りのピースからランダムに3個配置する
+  for (var i = 0; i < 3; i++) {
+    if (remainingPieces.length > 0) {
+      var randomIndex = Math.floor(Math.random() * remainingPieces.length);
+      var randomPiece = remainingPieces.splice(randomIndex, 1)[0];
+      randomPiece.currentX = randomPiece.targetX;
+      randomPiece.currentY = randomPiece.targetY;
+      randomPiece.placed = true;
+    }
+  }
+  
+  // トレイの補充
+  traySlots = [null, null, null];
+  addPieceToTrayAtSlot(0);
+  addPieceToTrayAtSlot(1);
+  addPieceToTrayAtSlot(2);
+}
+
       
       // --- addPieceToTrayAtSlot ---
       function addPieceToTrayAtSlot(slotIndex) {
@@ -525,11 +539,10 @@
         }
       });
       
-      // --- checkGameComplete ---
       function checkGameComplete() {
         var allPlaced = pieces.every(function(piece) { return piece.placed; });
         if (allPlaced) {
-          clearInterval(timerInterval);
+          clearInterval(timerInterval); // タイマー停止
           replayButton.style.display = "block";
         }
       }
