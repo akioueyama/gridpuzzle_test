@@ -2,22 +2,31 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- スマートフォン向けの表示調整 -->
+  <!-- 画面全体に合わせたレスポンシブ設定 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>パズルゲーム (スマートフォン対応・Replay付き)</title>
+  <title>パズルゲーム (タイマー・Item機能付き)</title>
   <style>
     body { margin: 0; padding: 0; position: relative; }
-    /* キャンバスは内部解像度 440x700（余白・パズル部分・スロット部分を確保） */
-    canvas {
-      border: 1px solid #000;
-      display: block;
-      margin: 0 auto;
+    /* キャンバス内部解像度は 720×880 ですが、CSS上は横幅いっぱいに表示 */
+    canvas { 
+      border: 1px solid #000; 
+      display: block; 
+      margin: 0 auto; 
       background: #fff;
-      width: 100%; /* 横幅いっぱい */
+      width: 100%;
       height: auto;
-      touch-action: none; /* タッチ操作でのスクロールなどを無効 */
+      touch-action: none;
     }
-    /* Replayボタン（初期は非表示） */
+    /* タイマー表示（上部中央） */
+    #timerDisplay {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 24px;
+      z-index: 10;
+    }
+    /* Replayボタン（中央） */
     #replayButton {
       display: none;
       position: absolute;
@@ -28,80 +37,206 @@
       padding: 10px 20px;
       z-index: 10;
     }
+    /* Continue・Exit ボタン（中央下部） */
+    #continueButton, #exitButton {
+      display: none;
+      position: absolute;
+      font-size: 20px;
+      padding: 10px 20px;
+      z-index: 10;
+    }
+    #continueButton { left: 30%; top: 50%; transform: translate(-50%, -50%); }
+    #exitButton { right: 30%; top: 50%; transform: translate(50%, -50%); }
+    /* Itemボタン：画面下部中央（下から100px） */
+    #itemButton {
+      position: absolute;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 20px;
+      padding: 10px 20px;
+      z-index: 10;
+    }
   </style>
 </head>
 <body>
-  <!-- 内部解像度 440x700 -->
-  <canvas id="gameCanvas" width="440" height="700"></canvas>
+  <div id="timerDisplay">5:00</div>
+  <!-- キャンバス内部解像度 720×880 -->
+  <canvas id="gameCanvas" width="720" height="880"></canvas>
   <button id="replayButton">Replay</button>
+  <button id="continueButton">Continue</button>
+  <button id="exitButton">Exit</button>
+  <button id="itemButton">Item: 3</button>
   <script>
     (function(){
-      // すべての変数はこの即時実行関数内で定義
+      // キャンバス内部解像度
+      var canvasWidth = 720, canvasHeight = 880;
       var canvas = document.getElementById("gameCanvas");
       var ctx = canvas.getContext("2d");
-
-      var blockSize = 40;  // 1ブロックのピクセル数
-      var margin = blockSize;  // 上下左右の余白：40px
-      var boardOffsetX = margin;
-      var boardOffsetY = margin;
-
-      // ボード全体のサイズ：9x11ブロック（360x440）
-      var boardCols = 9, boardRows = 11;
-      var boardWidth = 360;    // 9 * 40
-      var boardHeight = 440;   // 11 * 40
-
-      // 内側エリア（パズル完成形エリア）：7x9ブロック（280x360）
+      
+      // ボード設定（完成形のサイズを 360×440 とする）
+      var boardWidth = 360, boardHeight = 440;
+      // blockSize = boardHeight/11 (＝40)
+      var blockSize = boardHeight / 11;
+      
+      // レイアウト余白等
+      var topMargin = 60; // タイマー下の余白
+      var gapBetweenBoardAndTray = 40; // ボードとトレイの間隔
+      var boardOffsetX = (canvasWidth - boardWidth) / 2;
+      var boardOffsetY = topMargin;
+      
+      // 内側エリア（パズル完成エリア）：7×9 ブロック（280×360）
       var innerCols = 7, innerRows = 9;
-      var innerX = boardOffsetX + blockSize;  // 40 + 40 = 80
-      var innerY = boardOffsetY + blockSize;  // 40 + 40 = 80
-      var innerWidth = innerCols * blockSize;   // 280
-      var innerHeight = innerRows * blockSize;    // 360
-
-      // パズル部分とスロット部分の間に1ブロック（40px）の隙間を確保
-      var trayY = boardOffsetY + boardHeight + blockSize;  // 40 + 440 + 40 = 520
-
-      // キャンバス内部解像度は 440x700 → スロット部分の高さは 700 - 520 = 180px
-      // トレイのスロットは横に3つ配置（座標は余白を考慮して設定）
+      var innerX = boardOffsetX + blockSize;
+      var innerY = boardOffsetY + blockSize;
+      var innerWidth = blockSize * innerCols;
+      var innerHeight = blockSize * innerRows;
+      
+      // トレイ位置：ボード下端＋隙間
+      var trayY = boardOffsetY + boardHeight + gapBetweenBoardAndTray;
+      // トレイのスロットは横に3つ配置
       var traySlotPositions = [
         { x: boardOffsetX + 20,  y: trayY },
         { x: boardOffsetX + 140, y: trayY },
         { x: boardOffsetX + 260, y: trayY }
       ];
-
-      // パズルピース全体を格納する配列
+      
+      // ゲーム状態変数
       var pieces = [];
-      // 未配置のピースプール
       var remainingPieces = [];
-      // トレイに配置されるピース（3つ固定）
       var traySlots = [ null, null, null ];
-
-      // ドラッグ中のピースと、その元のスロット番号
       var draggingPiece = null;
       var draggingTraySlot = null;
       var dragOffsetX = 0, dragOffsetY = 0;
-
-      // Replayボタンの設定
+      
+      // タイマーおよびアイテム関連
+      var timeRemaining = 300; // 300秒＝5分
+      var timerInterval = null;
+      var gameOverFlag = false;
+      var itemCount = 3;
+      
+      // HTML要素取得
+      var timerDisplay = document.getElementById("timerDisplay");
       var replayButton = document.getElementById("replayButton");
-      replayButton.addEventListener("click", function(){
-        initGame();
-        replayButton.style.display = "none";
+      var continueButton = document.getElementById("continueButton");
+      var exitButton = document.getElementById("exitButton");
+      var itemButton = document.getElementById("itemButton");
+      
+      // タイマー表示更新
+      function updateTimerDisplay() {
+        var m = Math.floor(timeRemaining / 60);
+        var s = timeRemaining % 60;
+        timerDisplay.textContent = m + ":" + (s < 10 ? "0" + s : s);
+      }
+      
+      function startTimer() {
+        clearInterval(timerInterval);
+        timerInterval = setInterval(function(){
+          if(!gameOverFlag) {
+            timeRemaining--;
+            updateTimerDisplay();
+            if(timeRemaining <= 0) {
+              triggerGameOver();
+            }
+          }
+        }, 1000);
+      }
+      
+      function triggerGameOver() {
+        gameOverFlag = true;
+        continueButton.style.display = "block";
+        exitButton.style.display = "block";
+      }
+      
+      continueButton.addEventListener("click", function(){
+        timeRemaining += 60;
+        updateTimerDisplay();
+        gameOverFlag = false;
+        continueButton.style.display = "none";
+        exitButton.style.display = "none";
       });
-
-      // 画像選択：imageフォルダ内の複数画像からランダムに選択
-      var imageFiles = ["puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg"];
+      
+      exitButton.addEventListener("click", function(){
+        gameOverFlag = true;
+        clearInterval(timerInterval);
+        continueButton.style.display = "none";
+        exitButton.style.display = "none";
+        replayButton.style.display = "block";
+      });
+      
+      // Itemボタン
+      itemButton.addEventListener("click", useItem);
+      function updateItemButton() {
+        itemButton.textContent = "Item: " + itemCount;
+        if(itemCount <= 0) {
+          itemButton.disabled = true;
+          itemButton.style.opacity = 0.5;
+        } else {
+          itemButton.disabled = false;
+          itemButton.style.opacity = 1;
+        }
+      }
+      
+      function useItem() {
+        if (gameOverFlag) return;
+        if(itemCount <= 0) return;
+        var availablePieces = traySlots.filter(function(piece){ return piece != null; });
+        if(availablePieces.length === 0) return;
+        var randomIndex = Math.floor(Math.random() * availablePieces.length);
+        var piece = availablePieces[randomIndex];
+        var slotIndex = traySlots.indexOf(piece);
+        traySlots[slotIndex] = null;
+        animatePieceToTarget(piece, function(){
+          piece.placed = true;
+          itemCount--;
+          updateItemButton();
+          checkGameComplete();
+          addPieceToTrayAtSlot(slotIndex);
+        });
+      }
+      
+      function animatePieceToTarget(piece, callback) {
+        var duration = 300; // ms
+        var startTime = performance.now();
+        var startX = piece.currentX;
+        var startY = piece.currentY;
+        function animate(time) {
+          var elapsed = time - startTime;
+          var t = Math.min(elapsed / duration, 1);
+          piece.currentX = startX + t * (piece.targetX - startX);
+          piece.currentY = startY + t * (piece.targetY - startY);
+          if(t < 1) {
+            requestAnimationFrame(animate);
+          } else {
+            callback();
+          }
+        }
+        requestAnimationFrame(animate);
+      }
+      
+      // 画像選択：imageフォルダ内の全JPEGからランダム選択
+      var imageFiles = ["puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg", "puzzle4.jpg"];
       var selectedImageFile = imageFiles[Math.floor(Math.random() * imageFiles.length)];
       var puzzleImage = new Image();
       puzzleImage.src = "image/" + selectedImageFile;
-      puzzleImage.onerror = function(e) {
+      puzzleImage.onerror = function(e){
         console.error("画像読み込みエラー。パスを確認してください。", e);
       };
-
       puzzleImage.onload = function(){
         initGame();
+        startTimer();
         requestAnimationFrame(gameLoop);
       };
-
-      // 補助関数：配列シャッフル（Fisher-Yatesアルゴリズム）
+      
+      // getSrcScale: 画像を仮想完成形サイズ（360×440）に合わせるためのスケール係数
+      function getSrcScale() {
+        return {
+          x: puzzleImage.width / 360,
+          y: puzzleImage.height / 440
+        };
+      }
+      
+      // 補助関数：配列シャッフル（Fisher-Yates）
       function shuffle(array) {
         for (var i = array.length - 1; i > 0; i--) {
           var j = Math.floor(Math.random() * (i + 1));
@@ -110,8 +245,8 @@
           array[j] = temp;
         }
       }
-
-      // パズルピース生成
+      
+      // createPieces: 内側グリッド（7×9）をランダムなポリオミノに分割
       function createPieces() {
         pieces = [];
         var gridRows = innerRows;
@@ -138,7 +273,7 @@
             newPiece.cells.push({ r: r, c: c });
             grid[r][c] = pieceId;
             pieceId++;
-            // 1ブロックの確率をさらに半分下げる（約0.125%）
+            // 1ブロックピースの確率を約0.125%に設定
             var rand = Math.random();
             var targetSize;
             if (rand < 0.00125) { targetSize = 1; }
@@ -167,7 +302,6 @@
             pieces.push(newPiece);
           }
         });
-        // 各ピースについて、バウンディングボックスと正解位置（内側エリア上）を計算
         pieces.forEach(function(piece) {
           var minR = Infinity, minC = Infinity, maxR = -1, maxC = -1;
           piece.cells.forEach(function(cell) {
@@ -189,11 +323,21 @@
         remainingPieces = pieces.slice();
         shuffle(remainingPieces);
       }
-
-      // ゲーム初期化
+      
+      // initGame: ゲーム初期化
       function initGame() {
         createPieces();
-        // ヒントとして、内側エリアの中心に近いピース2個を自動配置
+        timeRemaining = 300;
+        updateTimerDisplay();
+        startTimer();
+        gameOverFlag = false;
+        itemCount = 3;
+        updateItemButton();
+        // 重要：ゲーム開始時は Replay, Continue, Exit ボタンを非表示にリセット
+        replayButton.style.display = "none";
+        continueButton.style.display = "none";
+        exitButton.style.display = "none";
+        // ヒント：内側エリアの中心に近いピース2個を自動配置
         var centerX = innerX + innerWidth / 2;
         var centerY = innerY + innerHeight / 2;
         var sortedPieces = pieces.slice().sort(function(a, b) {
@@ -222,8 +366,8 @@
         addPieceToTrayAtSlot(1);
         addPieceToTrayAtSlot(2);
       }
-
-      // 指定スロットにピース補充
+      
+      // addPieceToTrayAtSlot: 指定スロットにピース補充
       function addPieceToTrayAtSlot(slotIndex) {
         if (remainingPieces.length > 0) {
           var piece = remainingPieces.pop();
@@ -235,8 +379,8 @@
           traySlots[slotIndex] = piece;
         }
       }
-
-      // イベントの座標取得（スケール補正あり）
+      
+      // getEventPos: 座標取得（スケール補正あり）
       function getEventPos(e) {
         var rect = canvas.getBoundingClientRect();
         var scaleX = canvas.width / rect.width;
@@ -254,9 +398,16 @@
         }
         return pos;
       }
-
-      // マウス・タッチのドラッグ＆ドロップ操作
+      
+      // pointInPiece: ヒット判定（ピースの下側に blockSize 分追加）
+      function pointInPiece(x, y, piece) {
+        return (x >= piece.currentX && x <= piece.currentX + piece.width &&
+                y >= piece.currentY && y <= piece.currentY + piece.height + blockSize);
+      }
+      
+      // マウス・タッチ操作
       canvas.addEventListener("mousedown", function(e) {
+        if (gameOverFlag) return;
         var pos = getEventPos(e);
         for (var i = 0; i < traySlots.length; i++) {
           var piece = traySlots[i];
@@ -270,16 +421,18 @@
           }
         }
       });
-
+      
       canvas.addEventListener("mousemove", function(e) {
+        if (gameOverFlag) return;
         if (draggingPiece) {
           var pos = getEventPos(e);
           draggingPiece.currentX = pos.x - dragOffsetX;
           draggingPiece.currentY = pos.y - dragOffsetY;
         }
       });
-
+      
       canvas.addEventListener("mouseup", function(e) {
+        if (gameOverFlag) return;
         if (draggingPiece) {
           var pos = getEventPos(e);
           var tolerance = 0.8 * blockSize;
@@ -288,9 +441,7 @@
             draggingPiece.currentX = draggingPiece.targetX;
             draggingPiece.currentY = draggingPiece.targetY;
             draggingPiece.placed = true;
-            if (navigator.vibrate) {
-              navigator.vibrate(50);
-            }
+            if (navigator.vibrate) { navigator.vibrate(50); }
             addPieceToTrayAtSlot(draggingTraySlot);
             checkGameComplete();
           } else {
@@ -302,7 +453,7 @@
           draggingTraySlot = null;
         }
       });
-
+      
       canvas.addEventListener("mouseleave", function(e) {
         if (draggingPiece) {
           draggingPiece.currentX = traySlotPositions[draggingTraySlot].x;
@@ -312,8 +463,9 @@
           draggingTraySlot = null;
         }
       });
-
+      
       canvas.addEventListener("touchstart", function(e) {
+        if (gameOverFlag) return;
         e.preventDefault();
         var pos = getEventPos(e);
         for (var i = 0; i < traySlots.length; i++) {
@@ -328,8 +480,9 @@
           }
         }
       });
-
+      
       canvas.addEventListener("touchmove", function(e) {
+        if (gameOverFlag) return;
         e.preventDefault();
         if (draggingPiece) {
           var pos = getEventPos(e);
@@ -337,8 +490,9 @@
           draggingPiece.currentY = pos.y - dragOffsetY;
         }
       });
-
+      
       canvas.addEventListener("touchend", function(e) {
+        if (gameOverFlag) return;
         e.preventDefault();
         if (draggingPiece) {
           var pos = getEventPos(e);
@@ -348,9 +502,7 @@
             draggingPiece.currentX = draggingPiece.targetX;
             draggingPiece.currentY = draggingPiece.targetY;
             draggingPiece.placed = true;
-            if (navigator.vibrate) {
-              navigator.vibrate(50);
-            }
+            if (navigator.vibrate) { navigator.vibrate(50); }
             addPieceToTrayAtSlot(draggingTraySlot);
             checkGameComplete();
           } else {
@@ -362,62 +514,51 @@
           draggingTraySlot = null;
         }
       });
-
-      function pointInPiece(x, y, piece) {
-        return (x >= piece.currentX && x <= piece.currentX + piece.width &&
-                y >= piece.currentY && y <= piece.currentY + piece.height);
-      }
-
+      
       function checkGameComplete() {
-        var allPlaced = pieces.every(function(piece) {
-          return piece.placed;
-        });
+        var allPlaced = pieces.every(function(piece) { return piece.placed; });
         if (allPlaced) {
+          clearInterval(timerInterval); // タイマー停止
           replayButton.style.display = "block";
         }
       }
-
+      
       function gameLoop() {
         draw();
         requestAnimationFrame(gameLoop);
       }
-
+      
       function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawBoard();
         pieces.forEach(function(piece) {
-          if (piece.placed) {
-            drawPiece(piece);
-          }
+          if (piece.placed) { drawPiece(piece); }
         });
         ctx.fillStyle = "#ddd";
         ctx.fillRect(0, trayY - 10, canvas.width, canvas.height - trayY + 10);
         for (var i = 0; i < traySlots.length; i++) {
-          if (traySlots[i]) {
-            drawPiece(traySlots[i]);
-          }
+          if (traySlots[i]) { drawPiece(traySlots[i]); }
         }
-        if (draggingPiece) {
-          drawPiece(draggingPiece);
-        }
+        if (draggingPiece) { drawPiece(draggingPiece); }
       }
-
+      
       function drawBoard() {
+        var srcScale = getSrcScale();
         // 上側枠
         ctx.drawImage(puzzleImage,
-          0, 0, boardWidth, blockSize,
+          0 * srcScale.x, 0 * srcScale.y, boardWidth * srcScale.x, blockSize * srcScale.y,
           boardOffsetX, boardOffsetY, boardWidth, blockSize);
         // 下側枠
         ctx.drawImage(puzzleImage,
-          0, boardHeight - blockSize, boardWidth, blockSize,
+          0 * srcScale.x, (boardHeight - blockSize) * srcScale.y, boardWidth * srcScale.x, blockSize * srcScale.y,
           boardOffsetX, boardOffsetY + boardHeight - blockSize, boardWidth, blockSize);
         // 左側枠
         ctx.drawImage(puzzleImage,
-          0, blockSize, blockSize, boardHeight - 2*blockSize,
+          0 * srcScale.x, blockSize * srcScale.y, blockSize * srcScale.x, (boardHeight - 2*blockSize) * srcScale.y,
           boardOffsetX, boardOffsetY + blockSize, blockSize, boardHeight - 2*blockSize);
         // 右側枠
         ctx.drawImage(puzzleImage,
-          boardWidth - blockSize, blockSize, blockSize, boardHeight - 2*blockSize,
+          (boardWidth - blockSize) * srcScale.x, blockSize * srcScale.y, blockSize * srcScale.x, (boardHeight - 2*blockSize) * srcScale.y,
           boardOffsetX + boardWidth - blockSize, boardOffsetY + blockSize, blockSize, boardHeight - 2*blockSize);
         // 内側エリア背景
         ctx.fillStyle = "#fff";
@@ -440,20 +581,31 @@
           ctx.stroke();
         }
       }
-
+      
       function drawPiece(piece) {
+        var srcScale = getSrcScale();
         piece.cells.forEach(function(cell) {
-          var srcX = (cell.c + 1) * blockSize;
-          var srcY = (cell.r + 1) * blockSize;
+          var srcX = (cell.c + 1) * blockSize * srcScale.x;
+          var srcY = (cell.r + 1) * blockSize * srcScale.y;
+          var srcW = blockSize * srcScale.x;
+          var srcH = blockSize * srcScale.y;
           var destX = piece.currentX + (cell.c - piece.minC) * blockSize;
           var destY = piece.currentY + (cell.r - piece.minR) * blockSize;
           ctx.drawImage(puzzleImage,
-            srcX, srcY, blockSize, blockSize,
+            srcX, srcY, srcW, srcH,
             destX, destY, blockSize, blockSize);
           ctx.strokeStyle = "#000";
           ctx.strokeRect(destX, destY, blockSize, blockSize);
         });
       }
+      
+      function getSrcScale() {
+        return {
+          x: puzzleImage.width / 360,
+          y: puzzleImage.height / 440
+        };
+      }
+      
     })();
   </script>
 </body>
