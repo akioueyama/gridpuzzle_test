@@ -2,16 +2,16 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- 横幅・縦幅に合わせたレスポンシブ設定 -->
+  <!-- スマートフォン向けレスポンシブ -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>パズルゲーム (タイマー・Item機能付き)</title>
+  <title>パズルゲーム (フレーム付き・タイマー・Item機能)</title>
   <style>
     body { margin: 0; padding: 0; position: relative; }
-    /* キャンバス内部解像度は 720×880 ですが、CSS上は横幅いっぱいに表示 */
+    /* キャンバス内部解像度は720×880。画面横幅いっぱいに表示 */
     canvas { 
-      border: 1px solid #000; 
-      display: block; 
-      margin: 0 auto; 
+      border: 1px solid #000;
+      display: block;
+      margin: 0 auto;
       background: #fff;
       width: 100%;
       height: auto;
@@ -26,36 +26,23 @@
       font-size: 24px;
       z-index: 10;
     }
-    /* Replayボタン（中央） */
-    #replayButton {
-      display: none;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 20px;
-      padding: 10px 20px;
-      z-index: 10;
-    }
-    /* Continue・Exit ボタン（中央下部） */
-    #continueButton, #exitButton {
+    /* Replay, Continue, Exit ボタン（中央） */
+    #replayButton, #continueButton, #exitButton {
       display: none;
       position: absolute;
       font-size: 20px;
       padding: 10px 20px;
       z-index: 10;
     }
+    #replayButton { top: 50%; left: 50%; transform: translate(-50%, -50%); }
     #continueButton { left: 30%; top: 50%; transform: translate(-50%, -50%); }
     #exitButton { right: 30%; top: 50%; transform: translate(50%, -50%); }
-    /* Itemボタン：キャンバスの下部（キャンバス高さ880pxのすぐ下）に配置 */
+    /* Itemボタン：キャンバス下部に文書フロー内で表示 */
     #itemButton {
-      position: absolute;
-      top: 890px;  /* キャンバス880pxの下、若干の余白 */
-      left: 50%;
-      transform: translateX(-50%);
+      display: block;
+      margin: 20px auto;
       font-size: 20px;
       padding: 10px 20px;
-      z-index: 10;
     }
   </style>
 </head>
@@ -69,92 +56,94 @@
   <button id="itemButton">Item: 3</button>
   <script>
     (function(){
-      // --- レイアウト設定 ---
+      // --- キャンバス・レイアウト設定 ---
       var canvasWidth = 720, canvasHeight = 880;
       var canvas = document.getElementById("gameCanvas");
       var ctx = canvas.getContext("2d");
-      
-      // ボード（完成形）のサイズを余白が1ブロック程度になるよう調整
-      // ここでは、canvas幅720pxの左右余白をそれぞれ blockSize とすると、
-      // boardWidth = canvasWidth - 2*blockSize
-      // なお、完成形はアスペクト比 9:11 とするので、boardHeight = boardWidth * (11/9)
-      // ここでは、blockSizeは後で求めるため、以下のように計算します。
-      // 代入すると boardWidth = 720 - 2*blockSize かつ boardHeight = (720 - 2*blockSize)*(11/9)
-      // 今回は目安として、boardHeight = 600px とし、blockSize = boardHeight/11 ≒ 54.55px、boardWidth = 720 - 2*54.55 ≒ 610px
-      // ※ここでは実際に見た感じで余白を1ブロック弱にするよう調整します。
-      var boardHeight = 600;
-      var blockSize = boardHeight / 11;  // 約54.55px
-      var boardWidth = canvasWidth - 2 * blockSize; // 約720 - 109.1 = 610.9px
-      
-      // レイアウト余白
-      var topMargin = 60;  // タイマー下余白
-      var gapBetweenBoardAndTray = 20;  // ボードとトレイの間隔
-      var boardOffsetX = (canvasWidth - boardWidth) / 2;  // 中央に配置
+
+      // 固定のブロックサイズ（1セルのサイズ）
+      var blockSize = 65;  // この値を調整すればグリッドのサイズが変わります
+
+      // 完成形は 9列×11行とします（外枠も含む）
+      var boardWidth = 9 * blockSize;    // 9セル分
+      var boardHeight = 11 * blockSize;    // 11セル分
+
+      // ユーザー側の余白（フレームの外側）は、左右に (canvasWidth - boardWidth)/2
+      var boardOffsetX = Math.round((canvasWidth - boardWidth) / 2);
+      // 上部はタイマーの下余白として固定
+      var topMargin = 60;
       var boardOffsetY = topMargin;
-      
-      // 内側エリア（パズル完成エリア）：7×9ブロック
-      var innerCols = 7, innerRows = 9;
+
+      /* 
+         内側エリアは、外枠1セル分を除いた部分
+         ・内側の横セル数 = 9 - 2 = 7
+         ・内側の縦セル数 = 11 - 2 = 9
+      */
       var innerX = boardOffsetX + blockSize;
       var innerY = boardOffsetY + blockSize;
-      var innerWidth = blockSize * innerCols;
-      var innerHeight = blockSize * innerRows;
-      
-      // トレイ位置：ボード下端＋隙間
+      var innerWidth = boardWidth - 2 * blockSize;   // 7 * blockSize
+      var innerHeight = boardHeight - 2 * blockSize;   // 9 * blockSize
+
+      // トレイ位置：ボード下端＋隙間（20px）
+      var gapBetweenBoardAndTray = 20;
       var trayY = boardOffsetY + boardHeight + gapBetweenBoardAndTray;
-      // トレイのスロットは、左右均等に配置（ここでは、左右余白を考慮して3分割）
-      var traySlotPositions = [
-        { x: boardOffsetX + boardWidth / 4, y: trayY },
-        { x: boardOffsetX + boardWidth / 2, y: trayY },
-        { x: boardOffsetX + (3 * boardWidth) / 4, y: trayY }
-      ];
-      
+      // トレイのスロットは左右均等に3分割
+      var traySlotsCount = 3;
+      var traySlotPositions = [];
+      for (var i = 0; i < traySlotsCount; i++) {
+        traySlotPositions.push({
+          x: Math.round(boardOffsetX + boardWidth * (i + 1) / (traySlotsCount + 1)),
+          y: trayY
+        });
+      }
+
+      // --- 内側グリッドの分割数（内側は7×9セル） ---
+      var innerCols = 7, innerRows = 9;
+
       // --- ゲーム状態変数 ---
       var pieces = [];
       var remainingPieces = [];
-      var traySlots = [ null, null, null ];
+      var traySlots = new Array(traySlotsCount).fill(null);
       var draggingPiece = null;
       var draggingTraySlot = null;
       var dragOffsetX = 0, dragOffsetY = 0;
-      
-      // タイマー・アイテム関連
+
+      // --- タイマー・Item 関連 ---
       var timeRemaining = 300; // 300秒 = 5分
       var timerInterval = null;
       var gameOverFlag = false;
       var itemCount = 3;
-      
+
       // HTML要素取得
       var timerDisplay = document.getElementById("timerDisplay");
       var replayButton = document.getElementById("replayButton");
       var continueButton = document.getElementById("continueButton");
       var exitButton = document.getElementById("exitButton");
       var itemButton = document.getElementById("itemButton");
-      
+
       // --- タイマー処理 ---
       function updateTimerDisplay() {
         var m = Math.floor(timeRemaining / 60);
         var s = timeRemaining % 60;
         timerDisplay.textContent = m + ":" + (s < 10 ? "0" + s : s);
       }
-      
       function startTimer() {
         clearInterval(timerInterval);
         timerInterval = setInterval(function(){
-          if(!gameOverFlag) {
+          if (!gameOverFlag) {
             timeRemaining--;
             updateTimerDisplay();
-            if(timeRemaining <= 0) {
+            if (timeRemaining <= 0) {
               triggerGameOver();
             }
           }
         }, 1000);
       }
-      
       function triggerGameOver() {
         gameOverFlag = true;
         continueButton.style.display = "block";
         exitButton.style.display = "block";
       }
-      
       continueButton.addEventListener("click", function(){
         timeRemaining += 60;
         updateTimerDisplay();
@@ -162,7 +151,6 @@
         continueButton.style.display = "none";
         exitButton.style.display = "none";
       });
-      
       exitButton.addEventListener("click", function(){
         gameOverFlag = true;
         clearInterval(timerInterval);
@@ -170,12 +158,12 @@
         exitButton.style.display = "none";
         replayButton.style.display = "block";
       });
-      
+
       // --- Item機能 ---
       itemButton.addEventListener("click", useItem);
       function updateItemButton() {
         itemButton.textContent = "Item: " + itemCount;
-        if(itemCount <= 0) {
+        if (itemCount <= 0) {
           itemButton.disabled = true;
           itemButton.style.opacity = 0.5;
         } else {
@@ -183,12 +171,11 @@
           itemButton.style.opacity = 1;
         }
       }
-      
       function useItem() {
         if (gameOverFlag) return;
-        if(itemCount <= 0) return;
-        var availablePieces = traySlots.filter(function(piece){ return piece != null; });
-        if(availablePieces.length === 0) return;
+        if (itemCount <= 0) return;
+        var availablePieces = traySlots.filter(function(piece) { return piece != null; });
+        if (availablePieces.length === 0) return;
         var randomIndex = Math.floor(Math.random() * availablePieces.length);
         var piece = availablePieces[randomIndex];
         var slotIndex = traySlots.indexOf(piece);
@@ -201,9 +188,8 @@
           addPieceToTrayAtSlot(slotIndex);
         });
       }
-      
       function animatePieceToTarget(piece, callback) {
-        var duration = 300; // ms
+        var duration = 300;
         var startTime = performance.now();
         var startX = piece.currentX;
         var startY = piece.currentY;
@@ -212,7 +198,7 @@
           var t = Math.min(elapsed / duration, 1);
           piece.currentX = startX + t * (piece.targetX - startX);
           piece.currentY = startY + t * (piece.targetY - startY);
-          if(t < 1) {
+          if (t < 1) {
             requestAnimationFrame(animate);
           } else {
             callback();
@@ -220,31 +206,33 @@
         }
         requestAnimationFrame(animate);
       }
-      
+
       // --- 画像選択 ---
       var imageFiles = ["puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg", "puzzle4.jpg"];
       var selectedImageFile = imageFiles[Math.floor(Math.random() * imageFiles.length)];
       var puzzleImage = new Image();
       puzzleImage.src = "image/" + selectedImageFile;
-      puzzleImage.onerror = function(e){
+      puzzleImage.onerror = function(e) {
         console.error("画像読み込みエラー。パスを確認してください。", e);
       };
-      puzzleImage.onload = function(){
+      puzzleImage.onload = function() {
         initGame();
         startTimer();
         requestAnimationFrame(gameLoop);
       };
-      
+
       // --- getSrcScale ---
-      // 画像を今回のボードサイズ（boardWidth×boardHeight）に合わせるスケール係数
+      // puzzleImage は、もともと9×11セル分の画像と仮定
+      // 各セルのソースサイズ（外枠含む）は：
+      //  srcCellWidth = puzzleImage.width / 9, srcCellHeight = puzzleImage.height / 11
       function getSrcScale() {
         return {
-          x: puzzleImage.width / boardWidth,
-          y: puzzleImage.height / boardHeight
+          cellWidth: puzzleImage.width / 9,
+          cellHeight: puzzleImage.height / 11
         };
       }
-      
-      // --- 補助関数：配列シャッフル（Fisher-Yates） ---
+
+      // --- 補助：配列シャッフル（Fisher-Yates） ---
       function shuffle(array) {
         for (var i = array.length - 1; i > 0; i--) {
           var j = Math.floor(Math.random() * (i + 1));
@@ -253,13 +241,13 @@
           array[j] = temp;
         }
       }
-      
+
       // --- createPieces ---
-      // 内側グリッド（7×9）をランダムなポリオミノに分割
+      // puzzleImage の内側部分（外枠を除く：つまり9×11セルのうち、左右上下1セル分除いた領域）を7×9セルに分割してピースを生成
       function createPieces() {
         pieces = [];
-        var gridRows = innerRows;
-        var gridCols = innerCols;
+        var gridRows = innerRows;  // 9
+        var gridCols = innerCols;  // 7
         var grid = [];
         for (var r = 0; r < gridRows; r++) {
           grid[r] = [];
@@ -282,7 +270,6 @@
             newPiece.cells.push({ r: r, c: c });
             grid[r][c] = pieceId;
             pieceId++;
-            // 1ブロックピースの確率を約0.125%に設定
             var rand = Math.random();
             var targetSize;
             if (rand < 0.00125) { targetSize = 1; }
@@ -311,6 +298,7 @@
             pieces.push(newPiece);
           }
         });
+        // 各ピースごとに、含まれるセルの最小・最大の行・列を求め、配置領域のサイズを決定
         pieces.forEach(function(piece) {
           var minR = Infinity, minC = Infinity, maxR = -1, maxC = -1;
           piece.cells.forEach(function(cell) {
@@ -323,8 +311,10 @@
           piece.minC = minC;
           piece.maxR = maxR;
           piece.maxC = maxC;
+          // 各ピースの配置サイズは (maxC - minC + 1) * blockSize
           piece.width = (maxC - minC + 1) * blockSize;
           piece.height = (maxR - minR + 1) * blockSize;
+          // ピースの目標配置位置は、内側エリア内で、セル番号に blockSize を掛けた位置
           piece.targetX = innerX + (minC * blockSize);
           piece.targetY = innerY + (minR * blockSize);
           piece.placed = false;
@@ -332,65 +322,59 @@
         remainingPieces = pieces.slice();
         shuffle(remainingPieces);
       }
-      
-      // --- initGame ---
-function initGame() {
-  createPieces();
-  timeRemaining = 300;
-  updateTimerDisplay();
-  startTimer();
-  gameOverFlag = false;
-  itemCount = 3;
-  updateItemButton();
-  // 状態リセット：各種ボタンを非表示に
-  replayButton.style.display = "none";
-  continueButton.style.display = "none";
-  exitButton.style.display = "none";
-  
-  // ヒント：内側エリアの中心に近いピース2個を自動配置
-  var centerX = innerX + innerWidth / 2;
-  var centerY = innerY + innerHeight / 2;
-  var sortedPieces = pieces.slice().sort(function(a, b) {
-    var aCenterX = a.targetX + a.width / 2;
-    var aCenterY = a.targetY + a.height / 2;
-    var bCenterX = b.targetX + b.width / 2;
-    var bCenterY = b.targetY + b.height / 2;
-    var aDist = Math.sqrt(Math.pow(aCenterX - centerX, 2) + Math.pow(aCenterY - centerY, 2));
-    var bDist = Math.sqrt(Math.pow(bCenterX - centerX, 2) + Math.pow(bCenterY - centerY, 2));
-    return aDist - bDist;
-  });
-  for (var i = 0; i < 2; i++) {
-    var hintPiece = sortedPieces[i];
-    hintPiece.currentX = hintPiece.targetX;
-    hintPiece.currentY = hintPiece.targetY;
-    hintPiece.placed = true;
-    for (var j = 0; j < remainingPieces.length; j++) {
-      if (remainingPieces[j].id === hintPiece.id) {
-        remainingPieces.splice(j, 1);
-        break;
-      }
-    }
-  }
-  
-  // 追加のヒント：残りのピースからランダムに3個配置する
-  for (var i = 0; i < 3; i++) {
-    if (remainingPieces.length > 0) {
-      var randomIndex = Math.floor(Math.random() * remainingPieces.length);
-      var randomPiece = remainingPieces.splice(randomIndex, 1)[0];
-      randomPiece.currentX = randomPiece.targetX;
-      randomPiece.currentY = randomPiece.targetY;
-      randomPiece.placed = true;
-    }
-  }
-  
-  // トレイの補充
-  traySlots = [null, null, null];
-  addPieceToTrayAtSlot(0);
-  addPieceToTrayAtSlot(1);
-  addPieceToTrayAtSlot(2);
-}
 
-      
+      // --- initGame ---
+      function initGame() {
+        createPieces();
+        timeRemaining = 300;
+        updateTimerDisplay();
+        startTimer();
+        gameOverFlag = false;
+        itemCount = 3;
+        updateItemButton();
+        replayButton.style.display = "none";
+        continueButton.style.display = "none";
+        exitButton.style.display = "none";
+        // ヒント配置：まず内側エリアの中心に近い2個を配置
+        var centerX = innerX + innerWidth / 2;
+        var centerY = innerY + innerHeight / 2;
+        var sortedPieces = pieces.slice().sort(function(a, b) {
+          var aCenterX = a.targetX + a.width / 2;
+          var aCenterY = a.targetY + a.height / 2;
+          var bCenterX = b.targetX + b.width / 2;
+          var bCenterY = b.targetY + b.height / 2;
+          var aDist = Math.sqrt(Math.pow(aCenterX - centerX, 2) + Math.pow(aCenterY - centerY, 2));
+          var bDist = Math.sqrt(Math.pow(bCenterX - centerX, 2) + Math.pow(bCenterY - centerY, 2));
+          return aDist - bDist;
+        });
+        for (var i = 0; i < 2; i++) {
+          var hintPiece = sortedPieces[i];
+          hintPiece.currentX = hintPiece.targetX;
+          hintPiece.currentY = hintPiece.targetY;
+          hintPiece.placed = true;
+          for (var j = 0; j < remainingPieces.length; j++) {
+            if (remainingPieces[j].id === hintPiece.id) {
+              remainingPieces.splice(j, 1);
+              break;
+            }
+          }
+        }
+        // さらにランダムに3個配置
+        for (var i = 0; i < 3; i++) {
+          if (remainingPieces.length > 0) {
+            var randIndex = Math.floor(Math.random() * remainingPieces.length);
+            var randomPiece = remainingPieces.splice(randIndex, 1)[0];
+            randomPiece.currentX = randomPiece.targetX;
+            randomPiece.currentY = randomPiece.targetY;
+            randomPiece.placed = true;
+          }
+        }
+        traySlots = [null, null, null];
+        addPieceToTrayAtSlot(0);
+        addPieceToTrayAtSlot(1);
+        addPieceToTrayAtSlot(2);
+      }
+
       // --- addPieceToTrayAtSlot ---
       function addPieceToTrayAtSlot(slotIndex) {
         if (remainingPieces.length > 0) {
@@ -403,7 +387,7 @@ function initGame() {
           traySlots[slotIndex] = piece;
         }
       }
-      
+
       // --- getEventPos ---
       function getEventPos(e) {
         var rect = canvas.getBoundingClientRect();
@@ -422,14 +406,14 @@ function initGame() {
         }
         return pos;
       }
-      
-      // --- pointInPiece --- (ヒット判定：下側に blockSize 分追加)
+
+      // --- pointInPiece ---
       function pointInPiece(x, y, piece) {
         return (x >= piece.currentX && x <= piece.currentX + piece.width &&
                 y >= piece.currentY && y <= piece.currentY + piece.height + blockSize);
       }
-      
-      // --- マウス・タッチのドラッグ＆ドロップ操作 ---
+
+      // --- マウス・タッチ操作 ---
       canvas.addEventListener("mousedown", function(e) {
         if (gameOverFlag) return;
         var pos = getEventPos(e);
@@ -445,7 +429,6 @@ function initGame() {
           }
         }
       });
-      
       canvas.addEventListener("mousemove", function(e) {
         if (gameOverFlag) return;
         if (draggingPiece) {
@@ -454,7 +437,6 @@ function initGame() {
           draggingPiece.currentY = pos.y - dragOffsetY;
         }
       });
-      
       canvas.addEventListener("mouseup", function(e) {
         if (gameOverFlag) return;
         if (draggingPiece) {
@@ -477,7 +459,6 @@ function initGame() {
           draggingTraySlot = null;
         }
       });
-      
       canvas.addEventListener("mouseleave", function(e) {
         if (draggingPiece) {
           draggingPiece.currentX = traySlotPositions[draggingTraySlot].x;
@@ -487,7 +468,6 @@ function initGame() {
           draggingTraySlot = null;
         }
       });
-      
       canvas.addEventListener("touchstart", function(e) {
         if (gameOverFlag) return;
         e.preventDefault();
@@ -504,7 +484,6 @@ function initGame() {
           }
         }
       });
-      
       canvas.addEventListener("touchmove", function(e) {
         if (gameOverFlag) return;
         e.preventDefault();
@@ -514,7 +493,6 @@ function initGame() {
           draggingPiece.currentY = pos.y - dragOffsetY;
         }
       });
-      
       canvas.addEventListener("touchend", function(e) {
         if (gameOverFlag) return;
         e.preventDefault();
@@ -538,27 +516,33 @@ function initGame() {
           draggingTraySlot = null;
         }
       });
-      
+
+      // --- checkGameComplete ---
       function checkGameComplete() {
         var allPlaced = pieces.every(function(piece) { return piece.placed; });
         if (allPlaced) {
-          clearInterval(timerInterval); // タイマー停止
+          clearInterval(timerInterval);
           replayButton.style.display = "block";
         }
       }
-      
+
+      // --- gameLoop & draw ---
       function gameLoop() {
+        // 補充：トレイの空いたスロットに残りのピースがあれば自動補充
+        for (var i = 0; i < traySlots.length; i++) {
+          if (!traySlots[i] && remainingPieces.length > 0) {
+            addPieceToTrayAtSlot(i);
+          }
+        }
         draw();
         requestAnimationFrame(gameLoop);
       }
-      
       function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawBoard();
         pieces.forEach(function(piece) {
           if (piece.placed) { drawPiece(piece); }
         });
-        // トレイ背景
         ctx.fillStyle = "#ddd";
         ctx.fillRect(0, trayY - 10, canvas.width, canvas.height - trayY + 10);
         for (var i = 0; i < traySlots.length; i++) {
@@ -566,71 +550,81 @@ function initGame() {
         }
         if (draggingPiece) { drawPiece(draggingPiece); }
       }
-      
+
+      // --- drawBoard ---
       function drawBoard() {
-        var srcScale = getSrcScale();
+        var srcCellWidth = puzzleImage.width / 9;
+        var srcCellHeight = puzzleImage.height / 11;
         // 上側枠
         ctx.drawImage(puzzleImage,
-          0 * srcScale.x, 0 * srcScale.y, boardWidth * srcScale.x, blockSize * srcScale.y,
-          boardOffsetX, boardOffsetY, boardWidth, blockSize);
+          0, 0, puzzleImage.width, srcCellHeight,
+          Math.round(boardOffsetX), Math.round(boardOffsetY), Math.round(boardWidth), Math.round(blockSize));
         // 下側枠
         ctx.drawImage(puzzleImage,
-          0 * srcScale.x, (boardHeight - blockSize) * srcScale.y, boardWidth * srcScale.x, blockSize * srcScale.y,
-          boardOffsetX, boardOffsetY + boardHeight - blockSize, boardWidth, blockSize);
+          0, puzzleImage.height - srcCellHeight, puzzleImage.width, srcCellHeight,
+          Math.round(boardOffsetX), Math.round(boardOffsetY + boardHeight - blockSize), Math.round(boardWidth), Math.round(blockSize));
         // 左側枠
         ctx.drawImage(puzzleImage,
-          0 * srcScale.x, blockSize * srcScale.y, blockSize * srcScale.x, (boardHeight - 2 * blockSize) * srcScale.y,
-          boardOffsetX, boardOffsetY + blockSize, blockSize, boardHeight - 2 * blockSize);
+          0, srcCellHeight, srcCellWidth, puzzleImage.height - 2 * srcCellHeight,
+          Math.round(boardOffsetX), Math.round(boardOffsetY + blockSize), Math.round(blockSize), Math.round(boardHeight - 2 * blockSize));
         // 右側枠
         ctx.drawImage(puzzleImage,
-          (boardWidth - blockSize) * srcScale.x, blockSize * srcScale.y, blockSize * srcScale.x, (boardHeight - 2 * blockSize) * srcScale.y,
-          boardOffsetX + boardWidth - blockSize, boardOffsetY + blockSize, blockSize, boardHeight - 2 * blockSize);
-        // 内側エリア背景
+          puzzleImage.width - srcCellWidth, srcCellHeight, srcCellWidth, puzzleImage.height - 2 * srcCellHeight,
+          Math.round(boardOffsetX + boardWidth - blockSize), Math.round(boardOffsetY + blockSize), Math.round(blockSize), Math.round(boardHeight - 2 * blockSize));
+        // 内側エリア背景（白塗り）
         ctx.fillStyle = "#fff";
-        ctx.fillRect(innerX, innerY, innerWidth, innerHeight);
-        // 内側グリッド線
+        ctx.fillRect(Math.round(boardOffsetX + blockSize), Math.round(boardOffsetY + blockSize), Math.round(boardWidth - 2 * blockSize), Math.round(boardHeight - 2 * blockSize));
+        // 内側グリッド線（7×9分割）
         ctx.strokeStyle = "#ccc";
         ctx.lineWidth = 1;
+        var innerCellWidth = (boardWidth - 2 * blockSize) / innerCols;
+        var innerCellHeight = (boardHeight - 2 * blockSize) / innerRows;
         for (var i = 0; i <= innerCols; i++) {
-          var x = innerX + i * blockSize;
+          var x = Math.round(boardOffsetX + blockSize + i * innerCellWidth);
           ctx.beginPath();
-          ctx.moveTo(x, innerY);
-          ctx.lineTo(x, innerY + innerHeight);
+          ctx.moveTo(x, Math.round(boardOffsetY + blockSize));
+          ctx.lineTo(x, Math.round(boardOffsetY + boardHeight - blockSize));
           ctx.stroke();
         }
         for (var j = 0; j <= innerRows; j++) {
-          var y = innerY + j * blockSize;
+          var y = Math.round(boardOffsetY + blockSize + j * innerCellHeight);
           ctx.beginPath();
-          ctx.moveTo(innerX, y);
-          ctx.lineTo(innerX + innerWidth, y);
+          ctx.moveTo(Math.round(boardOffsetX + blockSize), y);
+          ctx.lineTo(Math.round(boardOffsetX + boardWidth - blockSize), y);
           ctx.stroke();
         }
       }
-      
+
+      // --- drawPiece ---
       function drawPiece(piece) {
-        var srcScale = getSrcScale();
+        // puzzleImage の内側部分（外枠を除く領域）は、
+        // ソース領域は、(puzzleImage.width - 2*srcCellWidth)×(puzzleImage.height - 2*srcCellHeight)
+        var srcCellWidth = puzzleImage.width / 9;
+        var srcCellHeight = puzzleImage.height / 11;
+        var srcInnerX = srcCellWidth;
+        var srcInnerY = srcCellHeight;
+        var srcInnerWidth = puzzleImage.width - 2 * srcCellWidth;
+        var srcInnerHeight = puzzleImage.height - 2 * srcCellHeight;
+        var cellSrcWidth = srcInnerWidth / innerCols;
+        var cellSrcHeight = srcInnerHeight / innerRows;
         piece.cells.forEach(function(cell) {
-          var srcX = (cell.c + 1) * blockSize * srcScale.x;
-          var srcY = (cell.r + 1) * blockSize * srcScale.y;
-          var srcW = blockSize * srcScale.x;
-          var srcH = blockSize * srcScale.y;
-          var destX = piece.currentX + (cell.c - piece.minC) * blockSize;
-          var destY = piece.currentY + (cell.r - piece.minR) * blockSize;
+          var srcX = Math.round(srcInnerX + cell.c * cellSrcWidth);
+          var srcY = Math.round(srcInnerY + cell.r * cellSrcHeight);
+          var destX = Math.round(piece.currentX + (cell.c - piece.minC) * blockSize);
+          var destY = Math.round(piece.currentY + (cell.r - piece.minR) * blockSize);
           ctx.drawImage(puzzleImage,
-            srcX, srcY, srcW, srcH,
+            srcX, srcY, Math.round(cellSrcWidth), Math.round(cellSrcHeight),
             destX, destY, blockSize, blockSize);
           ctx.strokeStyle = "#000";
           ctx.strokeRect(destX, destY, blockSize, blockSize);
         });
       }
-      
-      function getSrcScale() {
-        return {
-          x: puzzleImage.width / boardWidth,
-          y: puzzleImage.height / boardHeight
-        };
+
+      function gameLoop() {
+        draw();
+        requestAnimationFrame(gameLoop);
       }
-      
+
     })();
   </script>
 </body>
