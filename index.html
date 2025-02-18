@@ -4,15 +4,14 @@
   <meta charset="UTF-8">
   <!-- レスポンシブ設定 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>パズルゲーム (フレーム付き・タイマー・Item機能)</title>
+  <title>パズルゲーム (6×6パズル・8×8グリッド・Item機能)</title>
   <style>
     body { margin: 0; padding: 0; }
     /* ゲーム全体をラップするコンテナ（相対配置） */
     #gameContainer {
       position: relative;
       width: 100%;
-      /* PCの場合は最大幅を720pxにする（スマホでは全幅） */
-      max-width: 720px;
+      max-width: 720px; /* PCでは最大720px */
       margin: 0 auto;
     }
     /* キャンバスは内部解像度に合わせ、幅100% */
@@ -42,7 +41,7 @@
     #replayButton { top: 50%; left: 50%; transform: translate(-50%, -50%); }
     #continueButton { left: 30%; top: 50%; transform: translate(-50%, -50%); }
     #exitButton { right: 30%; top: 50%; transform: translate(50%, -50%); }
-    /* Itemボタン：最低サイズを指定 */
+    /* Itemボタン：最低サイズ指定 */
     #itemButton {
       font-size: 20px;
       padding: 10px;
@@ -63,7 +62,7 @@
   </div>
   <script>
     (function(){
-      // コンテナおよび各要素
+      // コンテナおよび各要素の取得
       var container = document.getElementById("gameContainer");
       var canvas = document.getElementById("gameCanvas");
       var ctx = canvas.getContext("2d");
@@ -73,16 +72,16 @@
       var exitButton = document.getElementById("exitButton");
       var itemButton = document.getElementById("itemButton");
 
-      // レイアウト・ゲーム状態に関する変数（updateLayout()で再計算）
+      // レイアウトおよびゲーム状態に関する変数
       var blockSize, boardWidth, boardHeight, boardOffsetX, boardOffsetY;
       var innerX, innerY, innerWidth, innerHeight;
-      var innerCols = 5, innerRows = 7;  // 内側（外枠除く）＝5×7セル
-      // 全体ボード（外枠含む）は7×9セル
+      // 全体ボードは8×8セル（外枠含む）→ 内側（実際のパズル部分）は6×6セル
+      var innerCols = 6, innerRows = 6;
       var trayHeight, trayY, trayPiecesWidth, trayItemWidth;
       var traySlotsCount = 3, traySlotPositions = [];
       var gapBetweenBoardAndTray;
 
-      // ゲーム状態
+      // ゲーム状態変数
       var pieces = [];
       var remainingPieces = [];
       var traySlots = new Array(traySlotsCount).fill(null);
@@ -91,38 +90,42 @@
 
       // --- レイアウト再計算 ---
       function updateLayout() {
-        // コンテナの表示幅を取得し、キャンバスの内部解像度を更新
+        // ※左右に半グリッド分の余白をとるため、全体の幅は boardWidth + blockSize = containerWidth となる
         var containerWidth = container.clientWidth;
-        canvas.width = containerWidth;
-        // ボードは画面全幅（7セル分）にする
-        boardWidth = containerWidth;
-        blockSize = boardWidth / 7;
-        boardHeight = 9 * blockSize;
-        boardOffsetX = 0;  // キャンバス全幅に合わせるので0
+        // よって、blockSize = containerWidth / 9
+        blockSize = containerWidth / 9;
+        // ボードは8セル分（枠含む）の正方形
+        boardWidth = 8 * blockSize;
+        boardHeight = 8 * blockSize;
+        // 左右の余白＝半セルずつ
+        boardOffsetX = blockSize / 2;
         boardOffsetY = 60; // タイマー下余白
+        // 内側パズル部分（完成すべき絵）は外枠1セル分除く → 6×6セル
         innerX = boardOffsetX + blockSize;
         innerY = boardOffsetY + blockSize;
-        innerWidth = boardWidth - 2 * blockSize;
-        innerHeight = boardHeight - 2 * blockSize;
+        innerWidth = boardWidth - 2 * blockSize; // 6 * blockSize
+        innerHeight = boardHeight - 2 * blockSize; // 6 * blockSize
+
         gapBetweenBoardAndTray = blockSize * 0.3;
         trayY = boardOffsetY + boardHeight + gapBetweenBoardAndTray;
         trayHeight = 6 * blockSize;
-        // 有効なトレイピース領域を、画面全幅のうち右側25%をItemボタン領域とするため、
-        // 残り左側75%のうち、中央に配置するようにオフセットを計算
+
+        // トレイ内のピース配置領域：今回は、ボード幅の75%を使用して中央配置
         var effectiveTrayPiecesWidth = boardWidth * 0.75;
-        var trayPiecesXOffset = (boardWidth - effectiveTrayPiecesWidth) / 2;
+        var trayPiecesXStart = boardOffsetX + (boardWidth - effectiveTrayPiecesWidth) / 2;
         traySlotPositions = [];
         for (var i = 0; i < traySlotsCount; i++) {
-          var x = boardOffsetX + trayPiecesXOffset + (i + 1) * (effectiveTrayPiecesWidth / (traySlotsCount + 1));
+          var x = trayPiecesXStart + (i + 1) * (effectiveTrayPiecesWidth / (traySlotsCount + 1));
           traySlotPositions.push({ x: x, y: trayY });
         }
-        // Itemボタンは右側25%領域
+        // Itemボタンは右側25%の領域
         trayItemWidth = boardWidth * 0.25;
         itemButton.style.top = trayY + "px";
         itemButton.style.left = (boardOffsetX + boardWidth - trayItemWidth) + "px";
         itemButton.style.width = Math.max(trayItemWidth, 100) + "px";
         itemButton.style.height = Math.max(trayHeight, 80) + "px";
-        // Canvasの高さはボード＋トレイ＋余白
+
+        // Canvasの内部解像度（高さ）は、ボード＋余白＋トレイ＋下マージン
         canvas.height = boardOffsetY + boardHeight + gapBetweenBoardAndTray + trayHeight + 20;
       }
 
@@ -212,6 +215,7 @@
 
       // --- 画像選択 ---
       var imageFiles = ["puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg", "puzzle4.jpg"];
+      // ※用意する画像は正方形としてください
       var selectedImageFile = imageFiles[Math.floor(Math.random() * imageFiles.length)];
       var puzzleImage = new Image();
       puzzleImage.src = "image/" + selectedImageFile;
@@ -233,11 +237,11 @@
       }
 
       // --- ピース作成 ---
-      // 内部グリッドは innerRows×innerCols = 7×5（行×列）
+      // 内部グリッドは innerRows×innerCols = 6×6
       function createPieces() {
         pieces = [];
-        var gridRows = innerRows; // 7
-        var gridCols = innerCols; // 5
+        var gridRows = innerRows; // 6
+        var gridCols = innerCols; // 6
         var grid = [];
         for (var r = 0; r < gridRows; r++) {
           grid[r] = [];
@@ -323,7 +327,7 @@
         replayButton.style.display = "none";
         continueButton.style.display = "none";
         exitButton.style.display = "none";
-        // ヒント：内側エリアの中心付近から2個配置
+        // ヒントとして、内側エリアの中心付近から2個配置
         var centerX = innerX + innerWidth / 2;
         var centerY = innerY + innerHeight / 2;
         var sortedPieces = pieces.slice().sort(function(a, b) {
@@ -536,52 +540,60 @@
 
       // --- ボード描画 ---
       function drawBoard() {
-        var srcCellWidth = puzzleImage.width / 7;
-        var srcCellHeight = puzzleImage.height / 9;
+        // 画像は正方形、8×8セル分割
+        var srcCellWidth = puzzleImage.width / 8;
+        var srcCellHeight = puzzleImage.height / 8;
+        // 上側枠
         ctx.drawImage(puzzleImage,
           0, 0, puzzleImage.width, srcCellHeight,
           Math.round(boardOffsetX), Math.round(boardOffsetY), Math.round(boardWidth), Math.round(blockSize));
+        // 下側枠
         ctx.drawImage(puzzleImage,
           0, puzzleImage.height - srcCellHeight, puzzleImage.width, srcCellHeight,
           Math.round(boardOffsetX), Math.round(boardOffsetY + boardHeight - blockSize), Math.round(boardWidth), Math.round(blockSize));
+        // 左側枠
         ctx.drawImage(puzzleImage,
           0, srcCellHeight, srcCellWidth, puzzleImage.height - 2 * srcCellHeight,
           Math.round(boardOffsetX), Math.round(boardOffsetY + blockSize), Math.round(blockSize), Math.round(boardHeight - 2 * blockSize));
+        // 右側枠
         ctx.drawImage(puzzleImage,
           puzzleImage.width - srcCellWidth, srcCellHeight, srcCellWidth, puzzleImage.height - 2 * srcCellHeight,
           Math.round(boardOffsetX + boardWidth - blockSize), Math.round(boardOffsetY + blockSize), Math.round(blockSize), Math.round(boardHeight - 2 * blockSize));
+        // 内側エリア背景
         ctx.fillStyle = "#fff";
         ctx.fillRect(Math.round(boardOffsetX + blockSize), Math.round(boardOffsetY + blockSize), Math.round(boardWidth - 2 * blockSize), Math.round(boardHeight - 2 * blockSize));
+        // 内側グリッド線（内側は6×6セル）
         ctx.strokeStyle = "#ccc";
         ctx.lineWidth = 1;
-        var innerCellWidth = (boardWidth - 2 * blockSize) / innerCols;
-        var innerCellHeight = (boardHeight - 2 * blockSize) / innerRows;
-        for (var i = 0; i <= innerCols; i++) {
-          var x = Math.round(boardOffsetX + blockSize + i * innerCellWidth);
+        var cellWidth = innerWidth / 6; // = blockSize
+        var cellHeight = innerHeight / 6; // = blockSize
+        for (var i = 0; i <= 6; i++) {
+          var x = Math.round(innerX + i * cellWidth);
           ctx.beginPath();
-          ctx.moveTo(x, Math.round(boardOffsetY + blockSize));
-          ctx.lineTo(x, Math.round(boardOffsetY + boardHeight - blockSize));
+          ctx.moveTo(x, Math.round(innerY));
+          ctx.lineTo(x, Math.round(innerY + innerHeight));
           ctx.stroke();
         }
-        for (var j = 0; j <= innerRows; j++) {
-          var y = Math.round(boardOffsetY + blockSize + j * innerCellHeight);
+        for (var j = 0; j <= 6; j++) {
+          var y = Math.round(innerY + j * cellHeight);
           ctx.beginPath();
-          ctx.moveTo(Math.round(boardOffsetX + blockSize), y);
-          ctx.lineTo(Math.round(boardOffsetX + boardWidth - blockSize), y);
+          ctx.moveTo(Math.round(innerX), y);
+          ctx.lineTo(Math.round(innerX + innerWidth), y);
           ctx.stroke();
         }
       }
 
       // --- ピース描画 ---
       function drawPiece(piece) {
-        var srcCellWidth = puzzleImage.width / 7;
-        var srcCellHeight = puzzleImage.height / 9;
+        // 画像の内側部分は、外枠1セル除く＝中央6×6セル
+        var srcCellWidth = puzzleImage.width / 8;
+        var srcCellHeight = puzzleImage.height / 8;
         var srcInnerX = srcCellWidth;
         var srcInnerY = srcCellHeight;
         var srcInnerWidth = puzzleImage.width - 2 * srcCellWidth;
         var srcInnerHeight = puzzleImage.height - 2 * srcCellHeight;
-        var cellSrcWidth = srcInnerWidth / innerCols;
-        var cellSrcHeight = srcInnerHeight / innerRows;
+        var cellSrcWidth = srcInnerWidth / 6;
+        var cellSrcHeight = srcInnerHeight / 6;
         piece.cells.forEach(function(cell) {
           var srcX = Math.round(srcInnerX + cell.c * cellSrcWidth);
           var srcY = Math.round(srcInnerY + cell.r * cellSrcHeight);
@@ -607,6 +619,7 @@
         replayButton.style.display = "none";
       });
 
+      // メインループ開始
       requestAnimationFrame(gameLoop);
     })();
   </script>
